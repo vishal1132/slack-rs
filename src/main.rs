@@ -32,16 +32,15 @@ fn parse_url(arg: &str) -> Result<(String, String, String), Box<dyn std::error::
 fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
+    let (team, channel, start_time) = match cli.subcmd {
+        SubCommand::Read { ref arg } | SubCommand::Thread { ref arg } => parse_url(arg)?,
+    };
+
+    let slack_client = slack::new(team.as_ref())?;
     match cli.subcmd {
-        SubCommand::Read { arg } => {
-            let (team, channel, start_time) = parse_url(&arg)?;
-            slack::new(team.as_ref())?.read(&channel, &start_time)?;
-        }
-        SubCommand::Thread { arg } => {
-            let (team, channel, start_time) = parse_url(&arg)?;
-            slack::new(team.as_ref())?.thread(&channel, &start_time)?;
-        }
-    }
+        SubCommand::Read { .. } => slack_client.read(&channel, &start_time)?,
+        SubCommand::Thread { .. } => slack_client.thread(&channel, &start_time)?,
+    };
 
     Ok(())
 }
