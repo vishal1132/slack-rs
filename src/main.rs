@@ -30,6 +30,14 @@ fn parse_url(arg: &str) -> Result<(String, String, String), Box<dyn std::error::
 
 fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
+    let mut log_filter_level = log::LevelFilter::Info;
+    if cli.verbose {
+        log_filter_level = log::LevelFilter::Debug;
+    }
+    env_logger::Builder::new()
+        .filter_level(log_filter_level)
+        .init();
+
     match cli.subcmd {
         SubCommand::Read { ref arg } | SubCommand::Thread { ref arg } => {
             let (team, channel, start_time) = parse_url(arg)?;

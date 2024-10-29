@@ -119,6 +119,8 @@ impl Slack {
             String::from_utf8(UnixCookieDecryptor::new(1003).decrypt(encrypted_value, &password)?)
                 .unwrap();
 
+        log::debug!("Cookie: {}", cookie);
+
         // add cookie
         let mut headers = HeaderMap::new();
         headers.insert("Cookie", Slack::format_cookie("d", &cookie).parse()?);
@@ -132,6 +134,8 @@ impl Slack {
         let response = res.text()?;
         let re = Regex::new(r#""api_token":"([^"]+)""#).unwrap();
         let token = re.captures(&response).unwrap().get(1).unwrap().as_str();
+
+        log::debug!("Token: {}", token);
 
         self.auth = Some(Auth::Cookie(CookieAuth {
             cookie,
@@ -186,9 +190,7 @@ impl Slack {
         let body_bytes = res.bytes()?;
         let response_size = body_bytes.len();
         println!("Response size: {}", response_size);
-        // Deserialize the response into type `T`
-        let parsed_response: T = serde_json::from_slice(&body_bytes)?;
-        // let parsed_response = res.json::<T>()?; // Deserialize response into T
+        let parsed_response: T = serde_json::from_slice::<T>(&body_bytes)?;
 
         Ok(parsed_response)
     }
@@ -215,7 +217,6 @@ impl Slack {
             println!("{}: {}", m.user, m.text);
         });
 
-        // println!("{:?}", res);
         Ok(())
     }
 
