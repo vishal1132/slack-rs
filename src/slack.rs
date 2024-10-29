@@ -1,6 +1,4 @@
-use crate::cache::cache::Cache;
 use crate::decryptor::UnixCookieDecryptor;
-use crate::model;
 use keyring::Entry;
 use regex::Regex;
 use reqwest::{blocking::Client, header::HeaderMap};
@@ -61,7 +59,7 @@ impl Slack {
         Err("No password found for any account name".into())
     }
 
-    fn slackConfigDir() -> Option<String> {
+    fn slack_config_dir() -> Option<String> {
         let home = std::env::var("HOME").ok()?;
         let first = format!("{home}/Library/Application Support/Slack");
         let second=format!("{home}/Library/Containers/com.tinyspeck.slackmacgap/Data/Library/Application Support/Slack");
@@ -85,7 +83,7 @@ impl Slack {
 
     fn get_cookie_value_encrypted_value() -> Result<(String, Vec<u8>), Box<dyn Error>> {
         let cookie_dbpath: String;
-        match Slack::slackConfigDir() {
+        match Slack::slack_config_dir() {
             Some(path) => {
                 cookie_dbpath = format!("{}/Cookies", path);
             }

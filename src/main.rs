@@ -4,11 +4,9 @@ mod decryptor;
 mod model;
 mod slack;
 
-use cache::sled;
 use clap::Parser;
-use cli::{cli as Cli, SubCommand};
-use log::{info, warn};
-use std::{error::Error, ops::Sub};
+use cli::{Cli, SubCommand};
+use std::error::Error;
 
 fn parse_url(arg: &str) -> Result<(String, String, String), Box<dyn std::error::Error>> {
     let url = url::Url::parse(arg)?;
