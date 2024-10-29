@@ -1,5 +1,5 @@
-pub mod replies;
 pub mod conversations;
+pub mod replies;
 
 pub struct User {
     pub id: String,

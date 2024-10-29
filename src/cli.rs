@@ -9,5 +9,5 @@ pub struct cli {
 #[derive(Subcommand)]
 pub enum SubCommand {
     Read { arg: String },
-    Thread {arg: String},
+    Thread { arg: String },
 }
