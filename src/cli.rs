@@ -4,6 +4,9 @@ use clap::{Parser, Subcommand};
 pub struct cli {
     #[clap(subcommand)]
     pub subcmd: SubCommand,
+    #[clap(short, long)]
+    #[clap(default_value = "false")]
+    pub verbose: bool,
 }
 
 #[derive(Subcommand)]

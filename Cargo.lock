@@ -1381,6 +1381,7 @@ dependencies = [
  "cipher 0.4.4",
  "clap",
  "keyring",
+ "log",
  "pbkdf2",
  "regex",
  "reqwest",

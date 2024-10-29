@@ -40,7 +40,12 @@ impl UnixCookieDecryptor {
         if padding_len > decrypted.len() {
             return Err("Invalid padding length".into());
         }
-
-        Ok(decrypted[..decrypted.len() - padding_len].to_vec())
+        let decrypted = &decrypted[..decrypted.len() - padding_len];
+        let pattern = b"xoxd-";
+        let index = decrypted
+            .windows(pattern.len())
+            .position(|window| window == pattern)
+            .unwrap();
+        Ok(decrypted[index..].to_vec())
     }
 }

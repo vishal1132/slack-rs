@@ -7,6 +7,7 @@ mod slack;
 use cache::sled;
 use clap::Parser;
 use cli::{cli as Cli, SubCommand};
+use log::{info, warn};
 use std::{error::Error, ops::Sub};
 
 fn parse_url(arg: &str) -> Result<(String, String, String), Box<dyn std::error::Error>> {

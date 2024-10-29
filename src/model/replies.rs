@@ -76,6 +76,7 @@ pub struct Element2 {
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Style {
+    #[serde(default)]
     pub code: bool,
 }
 
