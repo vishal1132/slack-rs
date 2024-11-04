@@ -1,5 +1,7 @@
 use crate::decryptor::UnixCookieDecryptor;
+use fake::Fake;
 use keyring::Entry;
+use rand::Rng;
 use regex::Regex;
 use reqwest::{blocking::Client, header::HeaderMap};
 use serde::de::DeserializeOwned;
@@ -195,14 +197,63 @@ impl Slack {
         Ok(parsed_response)
     }
 
+    pub fn generate_random_name() -> String {
+        use fake::faker::name::raw::Name;
+        use fake::locales::*;
+        match rand::thread_rng().gen_range(1..5) {
+            1 => return Name(fake::locales::FR_FR).fake(),
+            2 => return Name(fake::locales::PT_BR).fake(),
+            _ => return Name(fake::locales::EN).fake(),
+            // 4=>{return Name(fake::locales::ZH_CN).fake()},
+            // _=>{return Name(fake::locales::AR_SA).fake()},
+        }
+    }
+
     pub fn thread(&self, channel: &str, ts: &str) -> Result<(), Box<dyn Error>> {
         use crate::model::replies as model;
         let res = self.api::<model::Root>(
             "conversations.replies",
             collection! {"channel"=> channel, "ts"=>ts, "limit"=>"100", "inclusive"=>"true"},
         )?;
+
+        let new_line_replacer = Regex::new(r"\n{2,}").unwrap();
+        let user_placeholder_replacer = Regex::new(r"<@([^>]+)>").unwrap();
+        let gt_replacer = Regex::new(r"&gt;.*\n").unwrap();
+
+        let mut user_map = HashMap::<String, String>::new();
+
+        use colored::Colorize;
+
         res.messages.iter().for_each(|m| {
-            println!("{}: {}", m.user, m.text);
+            let user = m.user.clone();
+            let user_name = user_map
+                .entry(user)
+                .or_insert(Slack::generate_random_name())
+                .clone();
+
+            let text = new_line_replacer.replace_all(&m.text, "\n");
+
+            let text = gt_replacer.replace_all(&text, |caps: &regex::Captures| {
+                caps.get(0)
+                    .unwrap()
+                    .as_str()
+                    .replace("&gt;", "|")
+                    .blue()
+                    .bold()
+                    .italic()
+                    .to_string()
+                // caps.get(0).unwrap().as_str().replace("&gt;", "|").black().on_white().bold().italic().to_string()
+            });
+
+            let text = user_placeholder_replacer.replace_all(&text, |caps: &regex::Captures| {
+                let user_id = caps.get(1).unwrap().as_str().to_string();
+                let user_name = user_map
+                    .entry(user_id)
+                    .or_insert_with(|| Slack::generate_random_name());
+                format!("@{}", user_name.italic().bold().yellow())
+            });
+
+            println!("{}: {}\n", user_name.italic().bold().yellow(), text);
         });
         Ok(())
     }
