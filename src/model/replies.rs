@@ -15,6 +15,7 @@ pub struct Message {
     pub user: String,
     #[serde(rename = "type")]
     pub type_field: String,
+    #[serde(default)]
     pub ts: String,
     #[serde(rename = "client_msg_id")]
     pub client_msg_id: String,
@@ -39,8 +40,8 @@ pub struct Message {
     pub edited: Option<Edited>,
     #[serde(rename = "parent_user_id")]
     pub parent_user_id: Option<String>,
-    #[serde(default)]
-    pub attachments: Vec<Attachment>,
+    // #[serde(default)]
+    // pub attachments: Vec<Attachment>,
     #[serde(default)]
     pub reactions: Vec<Reaction>,
 }
@@ -86,7 +87,7 @@ pub struct Root2 {
     pub user: String,
     #[serde(rename = "type")]
     pub type_field: String,
-    pub ts: String,
+    pub ts: Option<String>,
     #[serde(rename = "client_msg_id")]
     pub client_msg_id: String,
     pub text: String,
@@ -137,7 +138,7 @@ pub struct Element4 {
 #[serde(rename_all = "camelCase")]
 pub struct Edited {
     pub user: String,
-    pub ts: String,
+    pub ts: Option<String>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -145,10 +146,12 @@ pub struct Edited {
 pub struct Attachment {
     #[serde(rename = "from_url")]
     pub from_url: String,
-    pub ts: String,
+    pub ts: Option<String>,
     #[serde(rename = "author_id")]
+    #[serde(default)]
     pub author_id: String,
     #[serde(rename = "channel_id")]
+    #[serde(default)]
     pub channel_id: String,
     #[serde(rename = "channel_team")]
     pub channel_team: String,
@@ -181,7 +184,7 @@ pub struct Attachment {
 pub struct MessageBlock {
     pub team: String,
     pub channel: String,
-    pub ts: String,
+    pub ts: Option<String>,
     pub message: Message2,
 }
 
