@@ -21,29 +21,29 @@ pub struct Message {
     pub client_msg_id: String,
     pub text: String,
     pub team: Option<String>,
-    #[serde(rename = "thread_ts")]
-    pub thread_ts: String,
-    #[serde(rename = "reply_count")]
-    pub reply_count: Option<i64>,
-    #[serde(rename = "reply_users_count")]
-    pub reply_users_count: Option<i64>,
-    #[serde(rename = "latest_reply")]
-    pub latest_reply: Option<String>,
-    #[serde(rename = "reply_users")]
-    pub reply_users: Option<Vec<String>>,
-    #[serde(rename = "is_locked")]
-    pub is_locked: Option<bool>,
-    pub subscribed: Option<bool>,
-    pub blocks: Vec<Block>,
-    pub subtype: Option<String>,
-    pub root: Option<Root2>,
-    pub edited: Option<Edited>,
-    #[serde(rename = "parent_user_id")]
-    pub parent_user_id: Option<String>,
+    // #[serde(rename = "thread_ts")]
+    // pub thread_ts: String,
+    // #[serde(rename = "reply_count")]
+    // pub reply_count: Option<i64>,
+    // #[serde(rename = "reply_users_count")]
+    // pub reply_users_count: Option<i64>,
+    // #[serde(rename = "latest_reply")]
+    // pub latest_reply: Option<String>,
+    // #[serde(rename = "reply_users")]
+    // pub reply_users: Option<Vec<String>>,
+    // #[serde(rename = "is_locked")]
+    // pub is_locked: Option<bool>,
+    // pub subscribed: Option<bool>,
+    // pub blocks: Vec<Block>,
+    // pub subtype: Option<String>,
+    // pub root: Option<Root2>,
+    // pub edited: Option<Edited>,
+    // #[serde(rename = "parent_user_id")]
+    // pub parent_user_id: Option<String>,
+    // // #[serde(default)]
+    // // pub attachments: Vec<Attachment>,
     // #[serde(default)]
-    // pub attachments: Vec<Attachment>,
-    #[serde(default)]
-    pub reactions: Vec<Reaction>,
+    // pub reactions: Vec<Reaction>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
