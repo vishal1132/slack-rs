@@ -8,7 +8,6 @@ keyring = {version="3.5.0", features = ["apple-native", "windows-native", "sync-
 reqwest = { version = "0.12", features = ["json", "blocking"] }
 tokio = { version = "1", features = ["full"] }
 regex={version = "1.11.1"}
-sled={version = "0.34.7"}
 sqlite={version="0.36.1"}
 aes = "0.7"
 block-modes = "0.8"
@@ -24,3 +23,4 @@ env_logger="0.11.5"
 fake = "3.0.0"
 rand = "0.8.4"
 colored="2.1.0"
+skim="0.10.4"

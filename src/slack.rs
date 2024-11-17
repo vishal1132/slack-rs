@@ -1,4 +1,7 @@
+use crate::cache::cache::Cache;
 use crate::decryptor::UnixCookieDecryptor;
+use crate::model::domain::User;
+use colored::Colorize;
 use fake::Fake;
 use keyring::Entry;
 use rand::Rng;
@@ -26,7 +29,8 @@ pub struct Slack {
     auth: Option<Auth>,
     client: Client,
     team: Option<String>,
-    // cache: Cache,
+    cache: Box<dyn Cache>,
+    user_map: HashMap<String, String>,
 }
 
 pub enum Auth {
@@ -38,11 +42,13 @@ pub struct CookieAuth {
     token: Option<String>,
 }
 
-pub fn new(team: &str) -> Result<Slack, Box<dyn Error>> {
+pub fn new(team: &str, cache: Box<dyn Cache>) -> Result<Slack, Box<dyn Error>> {
     let mut s = Slack {
         auth: None,
         client: Client::new(),
         team: Some(team.into()),
+        cache: cache,
+        user_map: HashMap::new(),
     };
     s.auth(team)?;
     Ok(s)
@@ -111,6 +117,21 @@ impl Slack {
         Ok((value.unwrap(), encrypted_value))
     }
 
+    fn get_channel(&self, channel_name: &str, channel_id: &str) -> String {
+        if !channel_name.is_empty() {
+            return channel_name.to_string();
+        }
+        let channel = self
+            .cache
+            .get_channel(self.team.as_ref().unwrap(), channel_id)
+            .unwrap_or_else(|| crate::model::domain::Channel {
+                id: channel_id.to_string(),
+                name: channel_id.to_string(),
+                is_channel: true,
+            });
+        channel.name
+    }
+
     //auth currently only supports cookie auth
     fn auth(&mut self, team: &str) -> Result<(), Box<dyn Error>> {
         let (_value, encrypted_value) = Slack::get_cookie_value_encrypted_value()?;
@@ -146,15 +167,24 @@ impl Slack {
         Ok(())
     }
 
-    pub fn api<T>(&self, path: &str, params: HashMap<&str, &str>) -> Result<T, Box<dyn Error>>
+    pub fn api<T>(
+        &self,
+        path: &str,
+        params: HashMap<&str, &str>,
+        use_team_name: bool,
+    ) -> Result<T, Box<dyn Error>>
     where
         T: DeserializeOwned,
     {
-        let url = format!(
-            "https://{}.slack.com/api/{}",
-            self.team.as_ref().unwrap(),
-            path
-        );
+        let url = if use_team_name {
+            format!(
+                "https://{}.slack.com/api/{}",
+                self.team.as_ref().unwrap(),
+                path
+            )
+        } else {
+            format!("https://slack.com/api/{}", path)
+        };
         let mut url = url.parse::<url::Url>().unwrap();
         params.iter().for_each(|(k, v)| {
             url.query_pairs_mut().append_pair(k, v);
@@ -191,7 +221,7 @@ impl Slack {
         // calculate the size of response
         let body_bytes = res.bytes()?;
         let response_size = body_bytes.len();
-        println!("Response size: {}", response_size);
+        log::debug!("Response size: {}", response_size);
         let parsed_response: T = serde_json::from_slice::<T>(&body_bytes)?;
 
         Ok(parsed_response)
@@ -199,7 +229,6 @@ impl Slack {
 
     pub fn generate_random_name() -> String {
         use fake::faker::name::raw::Name;
-        use fake::locales::*;
         match rand::thread_rng().gen_range(1..5) {
             1 => return Name(fake::locales::FR_FR).fake(),
             2 => return Name(fake::locales::PT_BR).fake(),
@@ -209,67 +238,167 @@ impl Slack {
         }
     }
 
-    pub fn thread(&self, channel: &str, ts: &str) -> Result<(), Box<dyn Error>> {
+    pub fn sync(&self) {
+        self.sync_channels();
+        self.sync_users();
+    }
+
+    pub fn sync_users(&self) {
+        use crate::model::domain::User;
+        use crate::model::users as model;
+        let users = self
+            .api::<model::Root>("users.list", collection! {}, true)
+            .unwrap();
+        log::debug!("syncing users {:?}", users);
+        let dom_users: Vec<User> = users
+            .members
+            .iter()
+            .map(|m| User {
+                id: m.id.clone(),
+                name: m.name.clone(),
+            })
+            .collect();
+        self.cache
+            .sync_users(self.team.as_ref().unwrap(), dom_users)
+            .unwrap();
+    }
+
+    pub fn sync_channels(&self) {
+        use crate::model::channels as model;
+        use crate::model::domain::Channel;
+
+        let channels = self
+            .api::<model::Root>(
+                "conversations.list",
+                // collection! {"types"=>"public_channel,private_channel,mpim,im"},
+                collection! {"types"=>"public_channel,private_channel", "limit"=>"1000"},
+                true,
+            )
+            .unwrap();
+
+        log::debug!("syncing channels {:?}", channels);
+
+        let dom_channels: Vec<Channel> = channels
+            .channels
+            .iter()
+            .map(|c| crate::model::domain::Channel {
+                id: c.id.clone(),
+                name: c.name.clone(),
+                is_channel: c.is_channel,
+            })
+            .collect();
+
+        self.cache
+            .sync_channels(self.team.as_ref().unwrap(), dom_channels)
+            .unwrap();
+    }
+
+    pub fn search(&mut self, keyword: &str, count: u32) {
+        use crate::model::search as model;
+        let items = self
+            .api::<model::Root>(
+                "search.messages",
+                collection! {"query"=> keyword, "count"=> &count.to_string()},
+                true,
+            )
+            .unwrap();
+
+        items
+            .messages
+            .matches
+            .into_iter()
+            .filter(|m| !m.channel.is_mpim)
+            .for_each(|m| {
+                let formatted_text = self.format_text(m.text);
+                let user_name = self.get_user_name(m.user);
+                println!(
+                    "{} in #{}: {}\n",
+                    user_name.italic().bold().yellow(),
+                    self.get_channel(m.channel.name.as_str(), m.channel.id.as_str())
+                        .italic()
+                        .bold()
+                        .green(),
+                    self.highlight_keyword(formatted_text.as_ref(), keyword)
+                );
+            });
+    }
+
+    pub fn thread(&mut self, channel: &str, ts: &str) -> Result<(), Box<dyn Error>> {
         use crate::model::replies as model;
         let res = self.api::<model::Root>(
             "conversations.replies",
             collection! {"channel"=> channel, "ts"=>ts, "limit"=>"100", "inclusive"=>"true"},
+            true,
         )?;
-
-        let new_line_replacer = Regex::new(r"\n{2,}").unwrap();
-        let user_placeholder_replacer = Regex::new(r"<@([^>]+)>").unwrap();
-        let gt_replacer = Regex::new(r"&gt;.*\n").unwrap();
-
-        let mut user_map = HashMap::<String, String>::new();
-
-        use colored::Colorize;
-
-        res.messages.iter().for_each(|m| {
-            let user = m.user.clone();
-            let user_name = user_map
-                .entry(user)
-                .or_insert(Slack::generate_random_name())
-                .clone();
-
-            let text = new_line_replacer.replace_all(&m.text, "\n");
-
-            let text = gt_replacer.replace_all(&text, |caps: &regex::Captures| {
-                caps.get(0)
-                    .unwrap()
-                    .as_str()
-                    .replace("&gt;", "|")
-                    .blue()
-                    .bold()
-                    .italic()
-                    .to_string()
-                // caps.get(0).unwrap().as_str().replace("&gt;", "|").black().on_white().bold().italic().to_string()
-            });
-
-            let text = user_placeholder_replacer.replace_all(&text, |caps: &regex::Captures| {
-                let user_id = caps.get(1).unwrap().as_str().to_string();
-                let user_name = user_map
-                    .entry(user_id)
-                    .or_insert_with(|| Slack::generate_random_name());
-                format!("@{}", user_name.italic().bold().yellow())
-            });
-
-            println!("{}: {}\n", user_name.italic().bold().yellow(), text);
-        });
+        self.print_messages(res.messages.as_ref());
         Ok(())
     }
 
-    pub fn read(&self, channel: &str, start_time: &str) -> Result<(), Box<dyn Error>> {
+    pub fn highlight_keyword(&mut self, text: &str, keyword: &str) -> String {
+        let re = Regex::new(&format!(r"(?i)\b{}\b", regex::escape(keyword))).unwrap();
+        let text = re.replace_all(text, |caps: &regex::Captures| {
+            caps.get(0).unwrap().as_str().red().bold().to_string()
+        });
+        text.to_string()
+    }
+
+    fn format_text(&mut self, text: String) -> String {
+        let new_line_replacer = Regex::new(r"\n{2,}").unwrap();
+        let user_placeholder_replacer = Regex::new(r"<@([^>]+)>").unwrap();
+        let gt_replacer = Regex::new(r"&gt;.*\n").unwrap();
+        let text = new_line_replacer.replace_all(&text, "\n");
+        let text = gt_replacer.replace_all(&text, |caps: &regex::Captures| {
+            caps.get(0)
+                .unwrap()
+                .as_str()
+                .replace("&gt;", "|")
+                .blue()
+                .bold()
+                .italic()
+                .to_string()
+            // caps.get(0).unwrap().as_str().replace("&gt;", "|").black().on_white().bold().italic().to_string()
+        });
+        let text = user_placeholder_replacer.replace_all(&text, |caps: &regex::Captures| {
+            let user_id = caps.get(1).unwrap().as_str().to_string();
+            let user_name = self.get_user_name(user_id);
+            format!("@{}", user_name.italic().bold().yellow())
+        });
+        text.to_string()
+    }
+
+    fn get_user_name(&mut self, user_id: String) -> String {
+        let user = self
+            .cache
+            .get_user(self.team.as_ref().unwrap(), &user_id)
+            .unwrap_or_else(|| User {
+                name: self
+                    .user_map
+                    .entry(user_id.clone())
+                    .or_insert_with(|| Slack::generate_random_name())
+                    .to_string(),
+                id: user_id.clone(),
+            });
+        user.name
+    }
+
+    fn print_messages(&mut self, messages: &Vec<crate::model::message::Message>) {
+        messages.iter().for_each(move |m| {
+            let user = m.user.clone();
+            let user_name = self.get_user_name(user.clone());
+            let text = self.format_text(m.text.clone());
+            println!("{}: {}\n", user_name.italic().bold().yellow(), text);
+        });
+    }
+
+    pub fn read(&mut self, channel: &str, start_time: &str) -> Result<(), Box<dyn Error>> {
         use crate::model::conversations as model;
         let res = self.api::<model::Root>(
             "conversations.history",
             collection! {"channel"=> channel, "ts"=>start_time,"limit"=>"100", "inclusive"=>"true"},
+            true,
         )?;
-        res.messages.iter().for_each(|m| {
-            println!("{}: {}", m.user, m.text);
-        });
+        self.print_messages(&res.messages);
 
         Ok(())
     }
-
-    fn users(&self) {}
 }

@@ -4,6 +4,7 @@ mod decryptor;
 mod model;
 mod slack;
 
+use cache::sqlite::InMemoryCache as db;
 use clap::Parser;
 use cli::{Cli, SubCommand};
 use std::error::Error;
@@ -38,14 +39,29 @@ fn main() -> Result<(), Box<dyn Error>> {
         .filter_level(log_filter_level)
         .init();
 
+    let db = db::new()?;
+
     match cli.subcmd {
         SubCommand::Read { ref arg } | SubCommand::Thread { ref arg } => {
             let (team, channel, start_time) = parse_url(arg)?;
-            let slack_client = slack::new(team.as_ref())?;
+            let mut slack_client = slack::new(team.as_ref(), db)?;
             match cli.subcmd {
                 SubCommand::Read { .. } => slack_client.read(&channel, &start_time)?,
                 SubCommand::Thread { .. } => slack_client.thread(&channel, &start_time)?,
+                _ => {}
             }
+        }
+        SubCommand::Search {
+            keyword,
+            team,
+            count,
+        } => {
+            let mut slack_client = slack::new(team.as_ref(), db)?;
+            slack_client.search(&keyword, count);
+        }
+        SubCommand::Sync { team } => {
+            let slack_client = slack::new(team.as_ref(), db)?;
+            slack_client.sync();
         }
     }
 

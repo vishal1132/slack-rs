@@ -11,6 +11,23 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum SubCommand {
-    Read { arg: String },
-    Thread { arg: String },
+    Read {
+        arg: String,
+    },
+    Thread {
+        arg: String,
+    },
+    Search {
+        #[clap(short, long)]
+        keyword: String,
+        #[clap(short, long)]
+        team: String,
+        #[clap(short, long)]
+        #[clap(default_value = "10")]
+        count: u32,
+    },
+    Sync {
+        #[clap(short, long)]
+        team: String,
+    },
 }
