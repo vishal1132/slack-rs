@@ -2,7 +2,9 @@ use crate::cache::cache::Cache;
 use crate::decryptor::UnixCookieDecryptor;
 use crate::model::domain::User;
 use colored::Colorize;
+use core::f64;
 use fake::Fake;
+use itertools::Itertools;
 use keyring::Entry;
 use rand::Rng;
 use regex::Regex;
@@ -308,6 +310,11 @@ impl Slack {
             .matches
             .into_iter()
             .filter(|m| !m.channel.is_mpim)
+            .sorted_by(|a, b| {
+                let a_ts = a.ts.parse::<f64>().unwrap_or(f64::MIN);
+                let b_ts = b.ts.parse::<f64>().unwrap_or(f64::MIN);
+                b_ts.partial_cmp(&a_ts).unwrap()
+            })
             .for_each(|m| {
                 let formatted_text = self.format_text(m.text);
                 let user_name = self.get_user_name(m.user);
@@ -382,12 +389,20 @@ impl Slack {
     }
 
     fn print_messages(&mut self, messages: &Vec<crate::model::message::Message>) {
-        messages.iter().for_each(move |m| {
-            let user = m.user.clone();
-            let user_name = self.get_user_name(user.clone());
-            let text = self.format_text(m.text.clone());
-            println!("{}: {}\n", user_name.italic().bold().yellow(), text);
-        });
+        messages
+            .iter()
+            .filter(|m| !m.text.is_empty())
+            .sorted_by(|a, b| {
+                let a_ts = a.ts.parse::<f64>().unwrap_or(f64::MIN);
+                let b_ts = b.ts.parse::<f64>().unwrap_or(f64::MIN);
+                b_ts.partial_cmp(&a_ts).unwrap()
+            })
+            .for_each(move |m| {
+                let user = m.user.clone();
+                let user_name = self.get_user_name(user.clone());
+                let text = self.format_text(m.text.clone());
+                println!("{}: {}\n", user_name.italic().bold().yellow(), text);
+            });
     }
 
     pub fn read(&mut self, channel: &str, start_time: &str) -> Result<(), Box<dyn Error>> {
