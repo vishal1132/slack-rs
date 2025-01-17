@@ -10,9 +10,12 @@ use rand::Rng;
 use regex::Regex;
 use reqwest::{blocking::Client, header::HeaderMap};
 use serde::de::DeserializeOwned;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::Path;
+use crate::model::message::Message;
+use threadpool::ThreadPool;
+use std::sync::{Arc, Mutex};
 
 macro_rules! collection {
     // map-like
@@ -27,6 +30,7 @@ macro_rules! collection {
     }};
 }
 
+// #[derive(Clone)]
 pub struct Slack {
     auth: Option<Auth>,
     client: Client,
@@ -35,10 +39,12 @@ pub struct Slack {
     user_map: HashMap<String, String>,
 }
 
+#[derive(Clone)]
 pub enum Auth {
     Cookie(CookieAuth),
 }
 
+#[derive(Clone)]
 pub struct CookieAuth {
     cookie: String,
     token: Option<String>,
@@ -144,7 +150,7 @@ impl Slack {
             String::from_utf8(UnixCookieDecryptor::new(1003).decrypt(encrypted_value, &password)?)
                 .unwrap();
 
-        log::debug!("Cookie: {}", cookie);
+        log::info!("Cookie: {}", cookie);
 
         // add cookie
         let mut headers = HeaderMap::new();
@@ -160,7 +166,7 @@ impl Slack {
         let re = Regex::new(r#""api_token":"([^"]+)""#).unwrap();
         let token = re.captures(&response).unwrap().get(1).unwrap().as_str();
 
-        log::debug!("Token: {}", token);
+        log::info!("Token: {}", token);
 
         self.auth = Some(Auth::Cookie(CookieAuth {
             cookie,
@@ -213,7 +219,7 @@ impl Slack {
                 );
             }
         }
-
+        log::info!("url: {}", url);
         let res = self
             .client
             .get(url.as_ref())
@@ -223,7 +229,9 @@ impl Slack {
         // calculate the size of response
         let body_bytes = res.bytes()?;
         let response_size = body_bytes.len();
-        log::debug!("Response size: {}", response_size);
+        log::info!("Response size: {}", response_size);
+        log::debug!("Response: {:?}", body_bytes);
+
         let parsed_response: T = serde_json::from_slice::<T>(&body_bytes)?;
 
         Ok(parsed_response)
@@ -251,7 +259,7 @@ impl Slack {
         let users = self
             .api::<model::Root>("users.list", collection! {}, true)
             .unwrap();
-        log::debug!("syncing users {:?}", users);
+        log::info!("syncing users {:?}", users);
         let dom_users: Vec<User> = users
             .members
             .iter()
@@ -278,7 +286,7 @@ impl Slack {
             )
             .unwrap();
 
-        log::debug!("syncing channels {:?}", channels);
+        log::info!("syncing channels {:?}", channels);
 
         let dom_channels: Vec<Channel> = channels
             .channels
@@ -331,14 +339,20 @@ impl Slack {
     }
 
     pub fn thread(&mut self, channel: &str, ts: &str) -> Result<(), Box<dyn Error>> {
+        let messages=self.thread_messages(channel, ts)?;
+        self.print_messages(messages.as_ref());
+        Ok(())
+    }
+
+    fn thread_messages(&mut self, channel: &str, ts: &str) -> Result<Vec<Message>, Box<dyn Error>>{
         use crate::model::replies as model;
         let res = self.api::<model::Root>(
             "conversations.replies",
             collection! {"channel"=> channel, "ts"=>ts, "limit"=>"100", "inclusive"=>"true"},
             true,
         )?;
-        self.print_messages(res.messages.as_ref());
-        Ok(())
+        // self.print_messages(res.messages.as_ref());
+        Ok(res.messages)
     }
 
     pub fn highlight_keyword(&mut self, text: &str, keyword: &str) -> String {
@@ -395,7 +409,7 @@ impl Slack {
             .sorted_by(|a, b| {
                 let a_ts = a.ts.parse::<f64>().unwrap_or(f64::MIN);
                 let b_ts = b.ts.parse::<f64>().unwrap_or(f64::MIN);
-                b_ts.partial_cmp(&a_ts).unwrap()
+                a_ts.partial_cmp(&b_ts).unwrap()
             })
             .for_each(move |m| {
                 let user = m.user.clone();
@@ -405,15 +419,159 @@ impl Slack {
             });
     }
 
-    pub fn read(&mut self, channel: &str, start_time: &str) -> Result<(), Box<dyn Error>> {
+    pub fn read_threaded(&mut self,
+        channel: &str,
+        start_time: &str,
+        count: u32,
+    )-> Result<(), Box<dyn Error>> {
+        let mut messages=Vec::new();
+        let mut cursor_empty_already = false;
+        let mut start_time=start_time.to_string().clone();
+        self.read_paginated(&mut messages,channel, &mut start_time, count, true, "", &mut cursor_empty_already)?;
+        let mut threaded_ts_set: HashSet<String>=HashSet::new();
+        messages.iter().filter(|m|m.thread_ts.is_some() || (m.thread_ts.is_none() && m.ts!="") && !m.text.contains("has joined the channel")).for_each(|m|{
+            if m.thread_ts.is_none(){
+                threaded_ts_set.insert(m.ts.clone());
+            }else{
+                threaded_ts_set.insert(m.thread_ts.clone().unwrap());
+            }
+        });
+        println!("total unique threads {}",threaded_ts_set.len());
+        let mut thread_messages: Vec<Vec<Message>>=Vec::new();
+        
+        // threaded_ts_set.iter().for_each(|ts|{
+        //     let mut thread=Vec::new();
+        //     messages.iter().filter(|m| m.thread_ts.is_some() && m.thread_ts.clone().unwrap()==*ts && m.ts!=*ts).for_each(|m|{
+        //         thread.push(m.clone());
+        //     });
+        //     thread_messages.push(thread);
+        // });
+        // let thread_messages = Arc::new(Mutex::new(Vec::new()));
+        // let pool = ThreadPool::new(10);
+
+        // for ts in threaded_ts_set {
+        //     let channel = channel.to_string();
+        //     let thread_messages = Arc::clone(&thread_messages);
+        //     let self_clone = self.clone(); // Assuming Slack implements Clone
+
+        //     pool.execute(move || {
+        //         let thread = self_clone.thread_messages(&channel, &ts).unwrap();
+        //         let mut thread_messages = thread_messages.lock().unwrap();
+        //         thread_messages.push(thread);
+        //     });
+        // }
+        // pool.join();
+        // let thread_messages = Arc::try_unwrap(thread_messages).unwrap().into_inner().unwrap();
+
+        threaded_ts_set.iter().for_each(|ts|{
+            let thread=self.thread_messages(channel, ts).unwrap();
+            thread_messages.push(thread);
+        });
+        thread_messages.iter().for_each(|thread|{
+            if thread.len()<=1{
+                return;
+            }
+            self.print_messages(thread);
+            println!("\n\n\n\n");
+        });
+        Ok(())
+
+    }
+
+    pub fn read(
+        &mut self,
+        channel: &str,
+        start_time: &str,
+        count: u32,
+    ) -> Result<(), Box<dyn Error>> {
+        // use crate::model::conversations as model;
+        // let res = self.api::<model::Root>(
+        //     "conversations.history",
+
+        //     collection! {"channel"=> channel, "ts"=>start_time,"limit"=> format!("{}", count).as_ref(), "inclusive"=>"true"},
+        //     true,
+        // )?;
+        // println!("empty thread ts {}",res.messages.iter().filter(|m|m.thread_ts == None).count());
+        // // self.print_messages(&res.messages);
+        // println!("cursor {}",res.response_metadata.next_cursor);
+        let mut messages=Vec::new();
+        let mut cursor_empty_already = false;
+        let mut start_time=start_time.to_string().clone();
+        self.read_paginated(&mut messages,channel, &mut start_time, count, true, "", &mut cursor_empty_already)?;
+        self.print_messages(&messages);
+
+        log::info!("Total Messages: {}", messages.len());
+        Ok(())
+    }
+
+    fn get_max_ts(&mut self, messages: &Vec<crate::model::message::Message>) -> String{
+        messages.iter().max_by(|a,b|{
+            let a_ts = a.ts.parse::<f64>().unwrap_or(f64::MIN);
+            let b_ts = b.ts.parse::<f64>().unwrap_or(f64::MIN);
+            a_ts.partial_cmp(&b_ts).unwrap()
+        }).map(|m|m.ts.clone()).unwrap_or("".to_string())
+    }
+
+    fn read_paginated(
+        &mut self,
+        messages: &mut Vec<crate::model::message::Message>,
+        channel: &str,
+        start_time: &mut String,
+        count: u32,
+        first_time: bool,
+        cursor: &str,
+        cursor_empty_already: &mut bool,
+    ) -> Result<(), Box<dyn Error>> {
+        log::info!(
+            "current cursor-> {}, first time-> {}, count-> {}, start_time-> {}, cursor_empty_already-> {}",
+            cursor,
+            first_time,
+            count,
+            start_time,
+            cursor_empty_already
+        );
+        if cursor == "" && !first_time && *cursor_empty_already{
+            // println!("early return");
+            return Ok(());
+        }
         use crate::model::conversations as model;
+        let count_str = format!("{}", count);
         let res = self.api::<model::Root>(
             "conversations.history",
-            collection! {"channel"=> channel, "ts"=>start_time,"limit"=>"100", "inclusive"=>"true"},
-            true,
+            if cursor!=""{
+                collection! {"channel"=> channel, "limit"=> count_str.as_ref(), "cursor"=>cursor}
+            } else{
+                 collection! {"channel"=> channel, "oldest"=>start_time,"limit"=> count_str.as_ref()}
+            },
+            false,
         )?;
-        self.print_messages(&res.messages);
-
+        if res.messages.len()==0{
+            *cursor_empty_already=true;
+            return Ok(());
+        }
+        if res.response_metadata.next_cursor==""{
+            if self.get_max_ts(messages) == self.get_max_ts(res.messages.as_ref()){
+                *cursor_empty_already=true;
+            }else{
+                *start_time=self.get_max_ts(messages);
+            }
+        }
+        // println!("next cursor-> {}", res.response_metadata.next_cursor);
+        log::info!("next cursor-> {}", res.response_metadata.next_cursor);
+        log::info!(
+            "empty thread ts {}",
+            res.messages.iter().filter(|m| m.thread_ts == None && m.ts=="").count()
+        );
+        messages.extend(res.messages);
+        self.read_paginated(
+            messages,
+            channel,
+            start_time,
+            count,
+            false,
+            res.response_metadata.next_cursor.as_ref(),
+            cursor_empty_already,
+        )?;
         Ok(())
     }
 }

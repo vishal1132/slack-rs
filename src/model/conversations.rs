@@ -16,6 +16,7 @@ pub struct Root {
     #[serde(rename = "channel_actions_count")]
     pub channel_actions_count: i64,
     #[serde(rename = "response_metadata")]
+    #[serde(default)]
     pub response_metadata: ResponseMetadata,
 }
 
@@ -23,5 +24,6 @@ pub struct Root {
 #[serde(rename_all = "camelCase")]
 pub struct ResponseMetadata {
     #[serde(rename = "next_cursor")]
+    #[serde(default)]
     pub next_cursor: String,
 }

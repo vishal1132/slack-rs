@@ -31,22 +31,29 @@ fn parse_url(arg: &str) -> Result<(String, String, String), Box<dyn std::error::
 
 fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
-    let mut log_filter_level = log::LevelFilter::Info;
+    let mut log_filter_level = log::LevelFilter::Warn;
     if cli.verbose {
+        log_filter_level = log::LevelFilter::Info;
+    }
+    if cli.debug {
         log_filter_level = log::LevelFilter::Debug;
     }
     env_logger::Builder::new()
         .filter_level(log_filter_level)
         .init();
-
     let db = db::new()?;
 
     match cli.subcmd {
-        SubCommand::Read { ref arg } | SubCommand::Thread { ref arg } => {
+        SubCommand::Read { ref arg, .. } | SubCommand::ReadThreaded { ref arg, .. }| SubCommand::Thread { ref arg, .. } => {
             let (team, channel, start_time) = parse_url(arg)?;
             let mut slack_client = slack::new(team.as_ref(), db)?;
             match cli.subcmd {
-                SubCommand::Read { .. } => slack_client.read(&channel, &start_time)?,
+                SubCommand::Read { count, .. } => {
+                    slack_client.read(&channel, &start_time, count)?
+                }
+                SubCommand::ReadThreaded { count, .. } => {
+                    slack_client.read_threaded(&channel, &start_time, count)?
+                }
                 SubCommand::Thread { .. } => slack_client.thread(&channel, &start_time)?,
                 _ => {}
             }
