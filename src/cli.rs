@@ -45,4 +45,10 @@ pub enum SubCommand {
         #[clap(short, long)]
         team: String,
     },
+    Send{
+        #[clap(short, long)]
+        team: String,
+        #[clap(short, long)]
+        msg: String,
+    }
 }

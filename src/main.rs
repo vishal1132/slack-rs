@@ -7,7 +7,7 @@ mod slack;
 use cache::sqlite::InMemoryCache as db;
 use clap::Parser;
 use cli::{Cli, SubCommand};
-use std::error::Error;
+use std::{error::Error, ops::Sub};
 
 fn parse_url(arg: &str) -> Result<(String, String, String), Box<dyn std::error::Error>> {
     let url = url::Url::parse(arg)?;
@@ -69,7 +69,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         SubCommand::Sync { team } => {
             let slack_client = slack::new(team.as_ref(), db)?;
             slack_client.sync();
-        }
+        },
+        SubCommand::Send{team, msg}=> { 
+            let slack_client = slack::new(team.as_ref(), db)?;
+            slack_client.send(msg);
+         }
     }
 
     Ok(())

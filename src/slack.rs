@@ -2,6 +2,7 @@ use crate::cache::cache::Cache;
 use crate::decryptor::UnixCookieDecryptor;
 use crate::model::domain::User;
 use colored::Colorize;
+use serde_json::Value;
 use core::f64;
 use fake::Fake;
 use itertools::Itertools;
@@ -10,7 +11,7 @@ use rand::Rng;
 use regex::Regex;
 use reqwest::{blocking::Client, header::HeaderMap};
 use serde::de::DeserializeOwned;
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map, HashMap, HashSet};
 use std::error::Error;
 use std::path::Path;
 use crate::model::message::Message;
@@ -175,6 +176,84 @@ impl Slack {
         Ok(())
     }
 
+    pub fn post_api<T, B>(
+        &self,
+        path: &str,
+        params: HashMap<&str, &str>,
+        body: B,
+        use_team_name: bool,
+    ) -> Result<T, Box<dyn Error>>
+    where
+        T: DeserializeOwned,
+        B: serde::Serialize,
+    {
+        // URL construction (same as api<T>)
+        let url = if use_team_name {
+            format!(
+                "https://{}.slack.com/api/{}",
+                self.team.as_ref().unwrap(),
+                path
+            )
+        } else {
+            format!("https://slack.com/api/{}", path)
+        };
+        let mut url = url.parse::<url::Url>().unwrap();
+        
+        // Add query parameters (same as api<T>)
+        params.iter().for_each(|(k, v)| {
+            url.query_pairs_mut().append_pair(k, v);
+        });
+        
+        // Headers setup (same as api<T>)
+        let mut headers = HeaderMap::new();
+        let auth = self.auth.as_ref().unwrap();
+        match auth {
+            Auth::Cookie(cookie_auth) => {
+                headers.insert(
+                    "Cookie",
+                    Slack::format_cookie("d", &cookie_auth.cookie)
+                        .parse()
+                        .unwrap(),
+                );
+                headers.insert(
+                    "Authorization",
+                    format!("Bearer {}", cookie_auth.token.as_ref().unwrap())
+                        .parse()
+                        .unwrap(),
+                );
+                headers.insert(
+                    "Content-Type",
+                    "application/json; charset=utf-8".parse().unwrap(),
+                );
+            }
+        }
+        
+        // Log URL (same as api<T>)
+        log::info!("url: {}", url);
+        
+        // Serialize body to JSON
+        let json_body = serde_json::to_string(&body)?;
+        
+        // Send POST request with body (different from api<T>)
+        let res = self
+            .client
+            .post(url.as_ref())
+            .headers(headers)
+            .body(json_body)
+            .send()
+            .unwrap();
+        
+        // Process response (same as api<T>)
+        let body_bytes = res.bytes()?;
+        let response_size = body_bytes.len();
+        log::info!("Response size: {}", response_size);
+        log::debug!("Response: {:?}", body_bytes);
+    
+        let parsed_response: T = serde_json::from_slice::<T>(&body_bytes)?;
+    
+        Ok(parsed_response)
+    }
+
     pub fn api<T>(
         &self,
         path: &str,
@@ -253,6 +332,22 @@ impl Slack {
         self.sync_users();
     }
 
+    pub fn send(&self, msg: String){
+        let mut body: HashMap<&str, &str>=HashMap::new();
+        body.insert("channel", "D084TR3F18X");
+        body.insert("text", msg.as_str());
+        println!("sending message {:?}", body);
+        let res = self
+            .post_api::<HashMap<String, Value>, HashMap<&str,&str>>(
+                "chat.postMessage",
+                collection! {},
+                body,
+                true,
+            )
+            .unwrap();
+        log::info!("send message {:?}", res);
+    }
+
     pub fn sync_users(&self) {
         use crate::model::domain::User;
         use crate::model::users as model;
@@ -266,6 +361,7 @@ impl Slack {
             .map(|m| User {
                 id: m.id.clone(),
                 name: m.name.clone(),
+                email: m.profile.email.clone()
             })
             .collect();
         self.cache
@@ -391,13 +487,18 @@ impl Slack {
         let user = self
             .cache
             .get_user(self.team.as_ref().unwrap(), &user_id)
-            .unwrap_or_else(|| User {
-                name: self
+            .unwrap_or_else(|| {
+                let name=self
                     .user_map
                     .entry(user_id.clone())
                     .or_insert_with(|| Slack::generate_random_name())
-                    .to_string(),
-                id: user_id.clone(),
+                    .to_string();
+                let email=format!("{name}@gmail.com");
+                User {
+                    name: name,
+                    id: user_id.clone(),
+                    email: email
+                }
             });
         user.name
     }

@@ -41,7 +41,7 @@ impl Cache for InMemoryCache {
         if let State::Row = statement.next().unwrap() {
             let id = statement.read::<String, usize>(0).unwrap();
             let name = statement.read(1).unwrap();
-            return Some(User { id, name });
+            return Some(User { id, name, email: "email".to_string() });
         }
         None
     }
@@ -56,10 +56,17 @@ impl Cache for InMemoryCache {
 
     fn sync_users(&self, team: &str, users: Vec<User>) -> Result<(), Box<dyn Error>> {
         self.connection.execute("BEGIN TRANSACTION")?;
-        for user in users {
+        for user in &users {
             let query = format!(
                 "INSERT OR REPLACE INTO users (id, name, team) VALUES ('{}', '{}', '{}')",
                 user.id, user.name, team
+            );
+            self.connection.execute(&query)?;
+        }
+        for user in &users {
+            let query = format!(
+                "INSERT OR REPLACE INTO users_v2 (id, name, team, email) VALUES ('{}', '{}', '{}','{}')",
+                user.id, user.name, team, user.email
             );
             self.connection.execute(&query)?;
         }
@@ -110,6 +117,13 @@ impl InMemoryCache {
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
+            team TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS users_v2 (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
             team TEXT NOT NULL
         );
         
